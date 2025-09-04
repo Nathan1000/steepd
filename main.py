@@ -39,10 +39,8 @@ if 'manual_override' not in st.session_state:
     st.session_state.manual_override = False
 
 
-
-
 def get_wikipedia_info(place_name, location=None):
-    """Fetch information about a place from Wikipedia with location context"""
+    """Fetch information about a place from Wikipedia with strict location verification"""
     try:
         wiki_wiki = wikipediaapi.Wikipedia(
             language='en',
@@ -50,10 +48,10 @@ def get_wikipedia_info(place_name, location=None):
             user_agent='CityStoryWalker/1.0'
         )
 
-        # Get location context if available
-        search_queries = []
+        # Get location context
         area = None
         city = None
+        country = "UK"
 
         if location:
             try:
@@ -64,33 +62,38 @@ def get_wikipedia_info(place_name, location=None):
                     address = location_info.raw.get('address', {})
                     area = address.get('suburb') or address.get('neighbourhood') or address.get('district')
                     city = address.get('city') or address.get('town')
+                    country = address.get('country', 'UK')
             except:
                 pass
 
-        # Handle generic names that need context
-        generic_names = ['lion', 'lions', 'statue', 'monument', 'fountain', 'cross',
-                         'memorial', 'church', 'park', 'garden', 'square', 'bridge']
+        # Build search queries with strong location context
+        search_queries = []
 
-        name_lower = place_name.lower()
-        needs_context = any(generic in name_lower for generic in generic_names)
-
-        # For landmarks in Trafalgar Square area
-        if "lion" in name_lower and location and 51.507 < location[0] < 51.509 and -0.129 < location[1] < -0.127:
-            search_queries = ["Trafalgar Square Lions", "Landseer Lions"]
-        # Build search queries based on context
-        elif needs_context and (area or city):
+        # For churches, always include location
+        if any(term in place_name.lower() for term in ['church', 'cathedral', 'chapel', 'abbey']):
             if area and city:
                 search_queries = [
-                    f"{place_name} {area} {city}",
-                    f"{place_name} {area}",
-                    f"{place_name} {city}",
+                    f"{place_name}, {area}, {city}",
+                    f"{place_name}, {area}",
+                    f"{place_name}, {city}"
                 ]
-            elif area:
-                search_queries = [f"{place_name} {area}"]
             elif city:
-                search_queries = [f"{place_name} {city}"]
+                search_queries = [f"{place_name}, {city}"]
+            # Don't search without location for churches
+            return None if not search_queries else None
+
+        # For statues/memorials, look for the specific installation
+        elif any(term in place_name.lower() for term in ['statue', 'memorial', 'monument', 'sculpture']):
+            if area:
+                search_queries = [
+                    f"{place_name} ({area})",
+                    f"{place_name} sculpture {area}",
+                    f"{place_name} statue {area}"
+                ]
+            # Don't return generic articles about concepts
+            # We'll verify the content below
         else:
-            # For non-generic names, try with location context first
+            # For other places, try with location first
             if area:
                 search_queries.append(f"{place_name}, {area}")
             if city and city != area:
@@ -99,69 +102,53 @@ def get_wikipedia_info(place_name, location=None):
 
         # Try each search query
         for query in search_queries:
-            # First try direct page lookup
             page = wiki_wiki.page(query)
 
             if page.exists():
-                # Check if the content is relevant (not about animals if looking for statues, etc)
-                content = page.text[:500].lower()
+                content = page.text[:1000].lower()
 
-                # Skip if we're looking for a place but got an animal/generic article
-                if needs_context:
-                    skip_terms = ['species', 'genus', 'animal', 'mammal', 'carnivore', 'biology']
+                # Verify the content is about the RIGHT place
+                verification_passed = False
+
+                # For churches - must mention the location
+                if any(term in place_name.lower() for term in ['church', 'cathedral', 'chapel']):
+                    if area and area.lower() in content:
+                        verification_passed = True
+                    elif city and city.lower() in content:
+                        verification_passed = True
+
+                # For statues/sculptures - must be about an artwork, not a company or concept
+                elif any(term in place_name.lower() for term in ['statue', 'memorial', 'sculpture']):
+                    # Skip if it's about a company, brand, or activity
+                    skip_terms = ['company', 'corporation', 'brand', 'whisky', 'whiskey', 'activity', 'exercise',
+                                  'walking the dog']
                     if any(term in content for term in skip_terms):
                         continue
 
-                full_content = page.text[:2000] if len(page.text) > 2000 else page.text
-                return {
-                    'title': page.title,
-                    'content': full_content,
-                    'url': page.fullurl
-                }
+                    # Must mention sculpture/statue/artwork
+                    artwork_terms = ['sculpture', 'statue', 'artwork', 'memorial', 'monument', 'artist', 'sculptor',
+                                     'bronze', 'stone', 'marble']
+                    if any(term in content for term in artwork_terms):
+                        # And should mention the location if it's a real statue
+                        if (area and area.lower() in content) or (city and city.lower() in content):
+                            verification_passed = True
+                else:
+                    # For other places, be more lenient but still check
+                    verification_passed = True
 
-            # If direct lookup fails, try search API
-            search_url = "https://en.wikipedia.org/w/api.php"
-            search_params = {
-                'action': 'opensearch',
-                'search': query,
-                'limit': 5,
-                'format': 'json'
-            }
+                if verification_passed:
+                    full_content = page.text[:2000] if len(page.text) > 2000 else page.text
+                    return {
+                        'title': page.title,
+                        'content': full_content,
+                        'url': page.fullurl
+                    }
 
-            response = requests.get(search_url, params=search_params)
-            if response.status_code == 200:
-                data = response.json()
-                if len(data) > 1 and len(data[1]) > 0:
-                    for suggested_title in data[1]:
-                        # Skip generic results for place-specific searches
-                        if needs_context:
-                            title_lower = suggested_title.lower()
-                            if any(skip in title_lower for skip in ['species', 'genus', 'biology']):
-                                continue
-
-                        page = wiki_wiki.page(suggested_title)
-                        if page.exists():
-                            content = page.text[:500].lower()
-
-                            # Verify relevance for generic names
-                            if needs_context:
-                                skip_terms = ['species', 'genus', 'animal', 'mammal', 'carnivore', 'biology']
-                                if any(term in content for term in skip_terms):
-                                    continue
-
-                            full_content = page.text[:2000] if len(page.text) > 2000 else page.text
-                            return {
-                                'title': page.title,
-                                'content': full_content,
-                                'url': page.fullurl
-                            }
-
+        # If we get here, no valid Wikipedia article was found
         return None
 
     except Exception as e:
-        st.error(f"Error fetching Wikipedia data: {str(e)}")
-        return None
-
+        return None  # Silently fail - no Wikipedia article found
 
 def create_narrative_story(place_info, selected_place=None):
     """Use OpenAI to transform Wikipedia content into an engaging narrative"""
