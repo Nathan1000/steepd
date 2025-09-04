@@ -11,7 +11,6 @@ from geopy.distance import geodesic
 import folium
 from streamlit_folium import st_folium
 import tempfile
-import pygame
 from streamlit_geolocation import streamlit_geolocation
 
 # Load environment variables
@@ -19,8 +18,7 @@ from streamlit_geolocation import streamlit_geolocation
 # Initialize APIs
 openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# Initialize pygame mixer for audio playback
-pygame.mixer.init()
+
 
 st.set_page_config(page_title="Steepd", layout="wide")
 
@@ -598,10 +596,7 @@ with col2:
             if st.session_state.audio_file:
                 st.audio(st.session_state.audio_file, format='audio/mp3')
 
-                # Play button
-                if st.button("🔊 Play Story"):
-                    pygame.mixer.music.load(st.session_state.audio_file)
-                    pygame.mixer.music.play()
+
         else:
             st.info("Story is being generated...")
     else:
