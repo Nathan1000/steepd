@@ -5,7 +5,6 @@ from openai import OpenAI
 from elevenlabs.client import ElevenLabs
 from elevenlabs import save
 import os
-from dotenv import load_dotenv
 import json
 from geopy.geocoders import Nominatim
 from geopy.distance import geodesic
@@ -16,10 +15,9 @@ import pygame
 from streamlit_geolocation import streamlit_geolocation
 
 # Load environment variables
-load_dotenv()
 
 # Initialize APIs
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 # Initialize pygame mixer for audio playback
 pygame.mixer.init()
@@ -241,7 +239,7 @@ def generate_audio_story(text):
     try:
         # Initialize ElevenLabs client
         client = ElevenLabs(
-            api_key=os.getenv("ELEVENLABS_API_KEY")
+            api_key=st.secrets["ELEVENLABS_API_KEY"]
         )
 
         # Generate audio using text_to_speech.convert
