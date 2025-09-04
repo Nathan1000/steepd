@@ -1,0 +1,11 @@
+streamlit
+openai
+elevenlabs
+wikipedia-api
+python-dotenv
+requests
+geopy
+folium
+streamlit-folium
+pygame
+streamlit-geolocation
